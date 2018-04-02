@@ -10,6 +10,11 @@
 
 unsigned char *disk;
 
+struct ext2_dir_entry* search_inode(char* name, struct ext2_inode* inode ){
+  struct ext2_dir_entry* dir_entry = NULL;
+  return NULL;
+}
+
 void append(char* s, char c){
     int len = strlen(s);
     s[len] = c;
@@ -69,6 +74,9 @@ int main(int argc, char **argv) {
         append(dir_name, target_path[i]);
       }
     }
+    for(int i=0; i<dirDepth(target_path); i++){
+      printf("%s\n", dir_names[i]);
+    }
 
     //super block
     struct ext2_super_block *sb = (struct ext2_super_block *)(disk + 1024);
@@ -83,7 +91,12 @@ int main(int argc, char **argv) {
     //inode bitmap
     char inode_bitmap = disk + 1024*group_table[0].bg_inode_bitmap;
 
+    //check root dir from target_path to get inode
+    int root_inode = EXT2_ROOT_INO - 1;
+    if(strcmp(dir_names[0], ".") != 0){
+      //if the root of target_path is not ".", we try to cd to it
 
+    }
 
     return 0;
 }
