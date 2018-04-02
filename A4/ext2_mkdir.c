@@ -11,6 +11,24 @@
 
 unsigned char *disk;
 
+void append(char* s, char c){
+    int len = strlen(s);
+    s[len] = c;
+    s[len+1] = '\0';
+}
+
+// returns the number of directories in the path.
+int dirDepth(char* path){
+  int depth = 0;
+  for(int i=0; i<strlen(path); i++){
+    if(path[i] == '/' && path[i+1] != '\0'){
+      depth ++;
+    }
+  }
+  depth++;
+  return depth;
+}
+
 
 int main(int argc, char **argv) {
 
@@ -19,7 +37,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
     int fd = open(argv[1], O_RDWR);
-    char* path = argv[2];
+    char* target_path = argv[2];
     
 
     disk = mmap(NULL, 128 * 1024, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -28,13 +46,50 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    printf("path is %s\n", path);
-    char* dir_name = strtok(path, "/");
-    while (dir_name != NULL){
-      printf( " %s\n", dir_name);
-      // dir_name = strtok(NULL, "/");
+  
+    // directory names
+    int num_dirs = dirDepth(target_path);
+    char dir_names[num_dirs][255];
+      //reuseble single dir name storage
+    char dir_name[255];
+    dir_name[0] = '\0';
+    int indx = 0; //this is used for dir_names
+    printf("path = %s\n", target_path);
+    //Analyze the content of target_path to get each dir name
+    for(int i=0; i<strlen(target_path)+1; i++){
+      if(target_path[i] == '/' || target_path[i] == '\0'){
+        //finished to find one dir name
+        strcpy(dir_names[indx], dir_name);
+        dir_name[0] = '\0';
+        indx ++;
+      }else{
+        //in the middle of find one dir name
+        append(dir_name, target_path[i]);
+      }
     }
 
+
+    //super block
+    struct ext2_super_block *sb = (struct ext2_super_block *)(disk + 1024);
+    printf("Inodes: %d\n", sb->s_inodes_count);
+    printf("Blocks: %d\n", sb->s_blocks_count);
+    //group table
+    struct ext2_group_desc* group_table = (struct ext2_group_desc*)(disk + 1024*2);
+    //inode table
+    struct ext2_inode* inode_table = (struct ext2_inode*)(disk + 1024*group_table[0].bg_inode_table);
+    //block bitmap
+    char block_bitmap = disk + 1024*group_table[0].bg_block_bitmap;
+    //inode bitmap
+    char inode_bitmap = disk + 1024*group_table[0].bg_inode_bitmap;
+
+    int i;
+    for(i=0; i<num_dirs; i++){
+        char *name = dir_names[i];
+        printf("%s\n", name);
+    }
+
+
+  
 
     // code brought back from excercise7
     // struct ext2_super_block *sb = (struct ext2_super_block *)(disk + 1024);
