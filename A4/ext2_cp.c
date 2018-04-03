@@ -1,8 +1,8 @@
-#include "ext2.h"
+
 #include "ext2_share.h"
+#include "ext2.h"
 
-
-unsigned char *disk;
+extern unsigned char *disk;
 
 int main(int argc, char **argv) {
 
@@ -59,9 +59,9 @@ int main(int argc, char **argv) {
     //inode table
     struct ext2_inode* inode_table = (struct ext2_inode*)(disk + 1024*group_table[0].bg_inode_table);
     //block bitmap
-    char block_bitmap = disk + 1024*group_table[0].bg_block_bitmap;
+    char* block_bitmap = (char*)disk + 1024*group_table[0].bg_block_bitmap;
     //inode bitmap
-    char inode_bitmap = disk + 1024*group_table[0].bg_inode_bitmap;
+    char* inode_bitmap = (char*)disk + 1024*group_table[0].bg_inode_bitmap;
 
     //check root dir from target_path to get inode
     int root_inode = EXT2_ROOT_INO - 1;
