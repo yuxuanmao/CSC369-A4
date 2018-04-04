@@ -15,6 +15,7 @@ unsigned char *disk;
 unsigned int findParentDirectoryInode(struct ext2_inode* table, unsigned int indx, char* parsed_name);
 int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_table);
 int find_free_block(struct ext2_super_block *sb, struct ext2_group_desc* group_table);
+void write_new_block(unsigned int block_num, char *new_dir_name, unsigned int inode, unsigned int parentInode);
 
 
 
@@ -88,7 +89,7 @@ int main(int argc, char **argv) {
     //block bitmap
     // char block_bitmap = disk + 1024*group_table[0].bg_block_bitmap;
     // inode bitmap
-    char* inode_bitmap = (char*)(disk + 1024*group_table[0].bg_inode_bitmap);
+    // char* inode_bitmap = (char*)(disk + 1024*group_table[0].bg_inode_bitmap);
 
    
 
@@ -130,8 +131,13 @@ int main(int argc, char **argv) {
 
     
     // write the dict struct into the new block, link inode
+    write_new_block((unsigned int) smallest_block, new_dir_name, (unsigned int) smallest_inode, (unsigned int) inode_num);
+
+
+    // modify the parent directory to link to the new directory
 
     // link ditionary block number with inode index
+
 
     // update inode bitmap
 
@@ -142,6 +148,37 @@ int main(int argc, char **argv) {
     
     
     return 0;
+}
+
+
+
+// write dictionary with name and related inode into smallest block,
+void write_new_block(unsigned int block_num, char *new_dir_name, unsigned int inode, unsigned int parentInode){
+    // index of the entry struct in the 
+
+    struct ext2_dir_entry *selfentry; 
+    struct ext2_dir_entry *parententry; 
+
+    selfentry->inode = inode;
+    selfentry->name[0] = '.';
+    selfentry->name[1] = '\0';
+    selfentry->file_type = 'd';
+    selfentry->name_len = '1';
+    // 8+1+3
+    selfentry->rec_len = 12;
+
+    (struct ext2_dir_entry*)(disk + 0x400 * block_num) = selfentry;
+
+    parententry->inode = parentInode;
+    parententry->name[0] = '.';
+    parententry->name[1] = '.';
+    parententry->name[2] = '\0';
+    parententry->file_type = 'd';
+    parententry->name_len = '2';
+    // 8 + 2 + 2
+    parententry->rec_len = 12;
+
+    (struct ext2_dir_entry*)(disk + 0x400 * block_num + selfentry->rec_len) = parententry;
 }
 
 
@@ -165,7 +202,6 @@ int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_t
     }
     return -1;
 }
-
 
 
 
