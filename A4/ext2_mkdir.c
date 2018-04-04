@@ -15,11 +15,11 @@ unsigned char *disk;
 unsigned int findParentDirectoryInode(struct ext2_inode* table, unsigned int indx, char* parsed_name);
 int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_table);
 int find_free_block(struct ext2_super_block *sb, struct ext2_group_desc* group_table);
-void write_new_block(unsigned int block_num, char *new_dir_name, unsigned int inode, unsigned int parentInode);
+void write_new_block(unsigned int block_num, unsigned int inode, unsigned int parentInode);
+void modify_parent_block(unsigned int inode, unsigned int parentInode, char *new_dir_name);
 
-
-
-void append(char* s, char c){
+void append(char *s, char c)
+{
     int len = strlen(s);
     s[len] = c;
     s[len+1] = '\0';
@@ -131,29 +131,35 @@ int main(int argc, char **argv) {
 
     
     // write the dict struct into the new block, link inode
-    write_new_block((unsigned int) smallest_block, new_dir_name, (unsigned int) smallest_inode, (unsigned int) inode_num);
-
+    write_new_block((unsigned int) smallest_block, (unsigned int) smallest_inode, (unsigned int) inode_num);
 
     // modify the parent directory to link to the new directory
+    modify_parent_block((unsigned int)smallest_inode, (unsigned int)inode_num, new_dir_name);
 
     // link ditionary block number with inode index
 
-
     // update inode bitmap
 
-
-
-  
-
-    
-    
     return 0;
+}
+
+
+// modify the block where the parent directory is to include the new directory name
+void modify_parent_block(unsigned int inode, unsigned int parentInode, char *new_dir_name){
+    // append the new child dir entry to the end of all the existing entries of this parent
+    struct ext2_dir_entry *childentry;
+    childentry->inode = inode;
+    childentry->name[0] = 
+    childentry->file_type = 'd';
+    childentry->name_len = '1';
+    // 8+1+3
+    childentry->rec_len = 12;
 }
 
 
 
 // write dictionary with name and related inode into smallest block,
-void write_new_block(unsigned int block_num, char *new_dir_name, unsigned int inode, unsigned int parentInode){
+void write_new_block(unsigned int block_num, unsigned int inode, unsigned int parentInode){
     // index of the entry struct in the 
 
     struct ext2_dir_entry *selfentry; 
@@ -167,7 +173,7 @@ void write_new_block(unsigned int block_num, char *new_dir_name, unsigned int in
     // 8+1+3
     selfentry->rec_len = 12;
 
-    (struct ext2_dir_entry*)(disk + 0x400 * block_num) = selfentry;
+    memset((disk + 0x400 * block_num), selfentry, sizeof(selfentry));
 
     parententry->inode = parentInode;
     parententry->name[0] = '.';
@@ -178,7 +184,7 @@ void write_new_block(unsigned int block_num, char *new_dir_name, unsigned int in
     // 8 + 2 + 2
     parententry->rec_len = 12;
 
-    (struct ext2_dir_entry*)(disk + 0x400 * block_num + selfentry->rec_len) = parententry;
+    memset((disk + 0x400 * block_num + selfentry->rec_len), parententry, sizeof(parententry));
 }
 
 
