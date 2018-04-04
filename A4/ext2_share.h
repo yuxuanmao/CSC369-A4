@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <string.h>
+#include <errno.h>
 #include "ext2.h"
 
 #define GET_SPACE 1
@@ -130,6 +131,9 @@ struct ext2_dir_entry* search_block(char* name, int block, int flag){
   if(name == NULL && block == 0 && ((struct ext2_dir_entry*)cur_ptr)->rec_len == 0){
     dir_entry = (struct ext2_dir_entry*)cur_ptr;
     return dir_entry;
+  }else if(name == NULL){
+    perror("search_block: name cannot be NULL");
+    exit(-2);
   }
 
   int cur_dir_size;
@@ -159,7 +163,7 @@ struct ext2_dir_entry* search_block(char* name, int block, int flag){
     }else if(flag == FIND_NAME){
       //user called this function to find the name
       //we check the name and length of name from directory entry matches "name"
-      if(((struct ext2_dir_entry*)cur_ptr)->name_len == strlen(name) && strcmp(((struct ext2_dir_entry*)cur_ptr)->name, name) == 0){
+      if(((struct ext2_dir_entry*)cur_ptr)->name_len == strlen(name)+1 && strcmp(((struct ext2_dir_entry*)cur_ptr)->name, name) == 0){
         return (struct ext2_dir_entry*)cur_ptr;
       }
     }else{
