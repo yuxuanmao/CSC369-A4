@@ -6,10 +6,15 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include "ext2.h"
+// #include "ext2_share.h"
 
 #include <string.h>
+#include <errno.h>
 
 unsigned char *disk;
+unsigned int findParentDirectoryInode(struct ext2_inode* table, unsigned int indx, char* parsed_name);
+unsigned int findAvailableInode(unsigned char* inodeBits);
+
 
 void append(char* s, char c){
     int len = strlen(s);
@@ -70,53 +75,135 @@ int main(int argc, char **argv) {
 
 
     //super block
-    struct ext2_super_block *sb = (struct ext2_super_block *)(disk + 1024);
-    printf("Inodes: %d\n", sb->s_inodes_count);
-    printf("Blocks: %d\n", sb->s_blocks_count);
+    // struct ext2_super_block *sb = (struct ext2_super_block *)(disk + 1024);
+    // printf("Inodes: %d\n", sb->s_inodes_count);
+    // printf("Blocks: %d\n", sb->s_blocks_count);
     //group table
     struct ext2_group_desc* group_table = (struct ext2_group_desc*)(disk + 1024*2);
     //inode table
     struct ext2_inode* inode_table = (struct ext2_inode*)(disk + 1024*group_table[0].bg_inode_table);
-    //block bitmap
-    char block_bitmap = disk + 1024*group_table[0].bg_block_bitmap;
-    //inode bitmap
-    char inode_bitmap = disk + 1024*group_table[0].bg_inode_bitmap;
+    // //block bitmap
+    // char block_bitmap = disk + 1024*group_table[0].bg_block_bitmap;
+    // inode bitmap
+    unsigned char* inode_bitmap = (unsigned char*)(disk + 1024*group_table[0].bg_inode_bitmap);
 
+    // //get the beginning of inode bitmap
+    // unsigned char* inodeBits = (unsigned char*)(disk + gd[0].bg_inode_bitmap * 0x400);
+
+
+    // Checking  
     int i;
-    for(i=0; i<num_dirs; i++){
-        char *name = dir_names[i];
-        printf("%s\n", name);
+    
+    char* new_dir_name = dir_names[num_dirs-1];
+    unsigned int inode_num = 2;
+
+    // only want the path to parent
+    for(i=0; i<num_dirs-1; i++){
+        char *parsed_name = dir_names[i];
+        printf("%s\n", parsed_name);
+        inode_num = findParentDirectoryInode(inode_table, inode_num, parsed_name);
+        if (inode_num == 0){
+            printf("directory not found\n");
+            exit(ENOENT);
+        }
     }
+
+    // inode_num should now indicate the parent directory of where we would like to place our new directory
+    printf("the inode pointing to parent directory is %d\n", inode_num);
+    
+    // find the smallest nonreserved inode
+    unsigned int smallest_inode = findAvailableInode(inode_bitmap);
+
+    // find the smallest block
+    
+    // write dictionary info into the block, link inode
+
+    // link ditionary block number with inode index
+
+    // update inode bitmap
+
 
 
   
 
-    // code brought back from excercise7
-    // struct ext2_super_block *sb = (struct ext2_super_block *)(disk + 1024);
-    // printf("Inodes: %d\n", sb->s_inodes_count);
-    // printf("Blocks: %d\n", sb->s_blocks_count);
+    
     
     return 0;
 }
 
 
 
-//  * break up path string to an array of directory names
- 
-
-// char*[] process_path(char* path){
-
+// Helper function to find the smallest available inode (nonereserved) 
+unsigned int findAvailableInode(unsigned char* inodeBits){
+    printf("inode bits are %s\n", inodeBits);
 
 
 
-// }
-
+    return 0;
+}
 
 
 
 
 
 
+
+// This is the helper function to print out the directory information
+// returns the inode number if mathing directory name is found, or return 0 if unfound 
+unsigned int findParentDirectoryInode(struct ext2_inode* table, unsigned int indx, char* parsed_name){
+    //get inode for this indx
+    struct ext2_inode* inode = table + (indx - 1);
+    //get the type of inode
+    if (EXT2_S_IFDIR & inode->i_mode){
+        // directory
+        for (int i=0;i<15; i++){
+            if((inode->i_block)[i] == 0){
+                // printf("code reached here\n");
+                break;
+            }else{
+                // this is each dir block num we got 
+                unsigned int block = (inode->i_block)[i];
+                printf("   DIR BLOCK NUM: %d (for inode %d)\n", block, indx);
+                // accumulator for the total size of the linked list, as the size cannot exceed block size
+                int index = 0;
+                while (index < EXT2_BLOCK_SIZE){
+                    struct ext2_dir_entry *entry = (struct ext2_dir_entry*)(disk + 0x400 * block + index);
+                    // determine the type of the file
+                    char type;
+                    char* name;
+                    struct ext2_inode* inode = table + entry->inode-1;
+
+                    if(EXT2_S_IFREG & inode->i_mode){
+                        //regular file
+                        type = 'f';
+                    }else if(EXT2_S_IFDIR & inode->i_mode){
+                        //directory
+                        type = 'd';
+                    }else{
+                        //symlink or other
+                        type = '0';
+                    }
+
+                    if(type == 'd'){
+                        //directory  
+                        name = (char*)(disk + 0x400 * block + index +sizeof(struct ext2_dir_entry));
+                        printf("name is %s and type is %c\n", name, type);
+                        if (strcmp(name, parsed_name) == 0){
+                            printf("name is %s\n", name);
+                            printf("parsed_name is %s\n", parsed_name);
+                            printf("found matching directory!\n");
+                            // return the inode related to this directory name
+                            printf("inode index is %d\n", entry->inode);
+                            return entry->inode;
+                        }
+                    }
+                    index += entry->rec_len;
+                }
+            }
+        }
+    } 
+    return 0;  
+};
 
 
 
