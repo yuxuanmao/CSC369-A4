@@ -50,6 +50,7 @@ param: recursive_time: the number of times recursively calling the this function
 return: ext_dir_entry*: if we found target, it will not be NULL;
 */
 struct ext2_dir_entry* iterate_search(char* name, int* pointers, int iterate_time, int recursive_time, int flag){
+  printf("entered iterate search with iterate_time = %d and recursive time = %d\n", iterate_time, recursive_time);
   struct ext2_dir_entry* dir_entry;
 
   //search each block pointer
@@ -57,16 +58,18 @@ struct ext2_dir_entry* iterate_search(char* name, int* pointers, int iterate_tim
     //if the recursive_time is larger than 0 but smaller than 3, it is likely that a user wants to analyze double/triple
     //indirect pointer. If a user wants to analyze direct/single indirect pointer, this function will not recurse.
     if(recursive_time >= 1 && recursive_time <= 2){
-      dir_entry = iterate_search(name, (int *)(disk + pointers[i] * EXT2_BLOCK_SIZE), iterate_time, recursive_time--, flag);
+      dir_entry = iterate_search(name, (int *)(disk + pointers[i] * EXT2_BLOCK_SIZE), iterate_time, recursive_time-1, flag);
       return dir_entry;
     }else if(recursive_time == 0){
       //From now, we actually determine the each pointer in array.
       if(name != NULL && pointers[i] == 0){
+        printf("iterate_searc return NULL\n");
         //if name is not null but there is no more direct pointer then return NULL
         return NULL;
       }
       //for each found direct pointer, we look the inside of block
       dir_entry = search_block(name, pointers[i], flag);
+      printf("finished to serach block\n");
       if(dir_entry != NULL){
         return dir_entry;
       }
@@ -79,11 +82,13 @@ struct ext2_dir_entry* iterate_search(char* name, int* pointers, int iterate_tim
 }
 
 struct ext2_dir_entry* search_inode(char* name, struct ext2_inode* inode, int flag){
+  printf("entered search_inode\n");
   struct ext2_dir_entry* dir_entry = NULL;
   //we search i_block[15]
     //search direct block Pointers first
     //First 12 elements are direct pointers and we request no recursion
     dir_entry = iterate_search(name, (int*)(inode->i_block), 12, 0, flag);
+    printf("finished to search direct pointers\n");
 
     if(dir_entry == NULL){
       //when we did not found name at direct pointers, then we now look indirect Pointers
@@ -123,6 +128,7 @@ int adjust_dir_size(int input){
 }
 
 struct ext2_dir_entry* search_block(char* name, int block, int flag){
+  printf("entered search_block with name = %s, block = %d, flag = %d\n", name, block, flag);
   unsigned char* block_ptr = disk + block * EXT2_BLOCK_SIZE;
   unsigned char* cur_ptr = block_ptr;
   //unsigned char* pre_ptr = NULL;
@@ -151,8 +157,9 @@ struct ext2_dir_entry* search_block(char* name, int block, int flag){
     cur_dir_size = adjust_dir_size(cur_dir_size);
 
     if(flag == GET_SPACE){
+      printf("entered GET_SPACE");
       //user called this function to get the space but not finding
-      if(((struct ext2_dir_entry*)cur_ptr)->rec_len - cur_dir_size >= strlen(name)){
+      if(((struct ext2_dir_entry*)cur_ptr)->rec_len - cur_dir_size >= adjust_dir_size(8 + strlen(name))){
         //we have enough space to store "name"
           //Now, we readjust the size of cur_ptr by resetting the size to cur_dir_size
         ((struct ext2_dir_entry*)(cur_ptr))->rec_len = cur_dir_size;
@@ -163,7 +170,8 @@ struct ext2_dir_entry* search_block(char* name, int block, int flag){
     }else if(flag == FIND_NAME){
       //user called this function to find the name
       //we check the name and length of name from directory entry matches "name"
-      if(((struct ext2_dir_entry*)cur_ptr)->name_len == strlen(name)+1 && strcmp(((struct ext2_dir_entry*)cur_ptr)->name, name) == 0){
+      if(((struct ext2_dir_entry*)cur_ptr)->name_len == strlen(name) && strcmp(((struct ext2_dir_entry*)cur_ptr)->name, name) == 0){
+        printf("we found the same directory entry\n");
         return (struct ext2_dir_entry*)cur_ptr;
       }
     }else{

@@ -5,37 +5,46 @@
 extern unsigned char *disk;
 
 int get_parent_dir(char** dir_names, int lst_length, struct ext2_inode* inode_table){
+  printf("enter get_parent_dir\n");
   //set the root Directory
   struct ext2_inode* root_inode = inode_table + (EXT2_ROOT_INO - 1);
   int i = 0;
+  printf("before check dir_names\n");
   if(strcmp(dir_names[0], ".") == 0){
     i = 1;
   }
-
-  while(1){
+  printf("before enter while\n");
+  while(i < lst_length){
     //check whether the name is directory or not
     if(S_ISDIR(root_inode->i_mode) == 0){
       perror("get_root_dir: not directory");
       exit(-1);
     }
-
-    if(i >= lst_length){
+    printf("checked inode mode\n");
+    if(i >= lst_length-1){
       //this is end of directory list
       struct ext2_dir_entry* sub_dir = search_inode(dir_names[i], root_inode, FIND_NAME);
+      printf("finished to search_inode\n");
       if(sub_dir == NULL){
+        printf("exit get_parent_dir\n");
         return -ENOENT;
       }
+      printf("exit get_parent_dir\n");
       return sub_dir->inode + (EXT2_ROOT_INO - 1);
     }else{
       //not end of directory list
       struct ext2_dir_entry* sub_dir = search_inode(dir_names[i], root_inode, FIND_NAME);
+      printf("finished to search_inode\n");
       if(sub_dir == NULL){
+        printf("exit get_parent_dir\n");
         return -ENOENT;
       }
       root_inode = inode_table + (sub_dir->inode - 1);
       i++;
     }
   }
+  printf("exit get_parent_dir\n");
+  return -2;
 }
 
 int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_table){
@@ -95,7 +104,11 @@ int main(int argc, char **argv) {
     char* target_path = argv[3];
     int total_dir_length = dirDepth(target_path);
       //initialize dir list
-    char dir_names[total_dir_length][255];
+    char** dir_names;
+    dir_names = malloc(sizeof(char*)*total_dir_length);
+    for(int i=0; i<total_dir_length; i++){
+      dir_names[i] = malloc(sizeof(char)*255);
+    }
       //reuseble single dir name storage
     char dir_name[255];
     dir_name[0] = '\0';
@@ -105,7 +118,7 @@ int main(int argc, char **argv) {
     for(int i=0; i<strlen(target_path)+1; i++){
       if(target_path[i] == '/' || target_path[i] == '\0'){
         //finished to find one dir name
-        strcpy(dir_names[indx], dir_name);
+        strncpy(dir_names[indx], dir_name, strlen(dir_name));
         dir_name[0] = '\0';
         indx ++;
       }else{
@@ -132,17 +145,21 @@ int main(int argc, char **argv) {
 
     //check root dir from target_path to get inode
     int dir_inode = EXT2_ROOT_INO - 1;
-    if(strcmp(dir_names[0], ".") != 0){
-      //if the root of target_path is not ".", we try to cd to it
-      dir_inode = get_parent_dir((char**)dir_names, total_dir_length, inode_table);
-      if(dir_inode == -ENOENT){
-        printf("found error at get parent dir");
-        exit(ENOENT);
-      }
+    // if(strcmp(dir_names[0], ".") != 0){
+    //   //if the root of target_path is not ".", we try to cd to it
+    //
+    // }
+    dir_inode = get_parent_dir(dir_names, total_dir_length, inode_table);
+    printf("parent directory inode is = %d\n", dir_inode);
+    if(dir_inode == -ENOENT){
+      printf("found error at get parent dir");
+      exit(ENOENT);
     }
 
     //check whether the file is already existed in our target_path
+    printf("===================================================\n");
     struct ext2_dir_entry* possible_dup = search_inode(filename, inode_table + dir_inode, FIND_NAME);
+    printf("finished to search inode\n");
     if(possible_dup != NULL){
       //there is already a file with the same name as filename.
       printf("found the file is already existed");
@@ -157,7 +174,7 @@ int main(int argc, char **argv) {
       strncpy(file_space->name, filename, strlen(filename));
 
       //set the inode
-      int inode_num = find_free_inode(sb, group_table, inode_table, inode_bitmap);
+      int inode_num = find_free_inode(sb, group_table);
 
 
     return 0;
