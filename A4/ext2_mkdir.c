@@ -13,7 +13,9 @@
 
 unsigned char *disk;
 unsigned int findParentDirectoryInode(struct ext2_inode* table, unsigned int indx, char* parsed_name);
-unsigned int findAvailableInode(unsigned char* inodeBits);
+int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_table);
+int find_free_block(struct ext2_super_block *sb, struct ext2_group_desc* group_table);
+
 
 
 void append(char* s, char c){
@@ -75,20 +77,20 @@ int main(int argc, char **argv) {
 
 
     //super block
-    // struct ext2_super_block *sb = (struct ext2_super_block *)(disk + 1024);
+    struct ext2_super_block *sb = (struct ext2_super_block *)(disk + 1024);
     // printf("Inodes: %d\n", sb->s_inodes_count);
     // printf("Blocks: %d\n", sb->s_blocks_count);
+
     //group table
     struct ext2_group_desc* group_table = (struct ext2_group_desc*)(disk + 1024*2);
     //inode table
     struct ext2_inode* inode_table = (struct ext2_inode*)(disk + 1024*group_table[0].bg_inode_table);
-    // //block bitmap
+    //block bitmap
     // char block_bitmap = disk + 1024*group_table[0].bg_block_bitmap;
     // inode bitmap
-    unsigned char* inode_bitmap = (unsigned char*)(disk + 1024*group_table[0].bg_inode_bitmap);
+    char* inode_bitmap = (char*)(disk + 1024*group_table[0].bg_inode_bitmap);
 
-    // //get the beginning of inode bitmap
-    // unsigned char* inodeBits = (unsigned char*)(disk + gd[0].bg_inode_bitmap * 0x400);
+   
 
 
     // Checking  
@@ -111,12 +113,23 @@ int main(int argc, char **argv) {
     // inode_num should now indicate the parent directory of where we would like to place our new directory
     printf("the inode pointing to parent directory is %d\n", inode_num);
     
-    // find the smallest nonreserved inode
-    unsigned int smallest_inode = findAvailableInode(inode_bitmap);
+    // find the smallest nonreserved inode and make this inode unavailable
+    int smallest_inode = find_free_inode(sb, group_table);
+    printf("the smallest inode available is %d\n", smallest_inode);
+    if (smallest_inode == -1){
+        perror("No more free inodes");
+    }
 
-    // find the smallest block
+
+    // find the smallest free block
+    int smallest_block = find_free_block(sb, group_table);
+    printf("the smallest block available is %d\n", smallest_block);
+    if (smallest_block == -1){
+            perror("No more free blocks");
+    }
+
     
-    // write dictionary info into the block, link inode
+    // write the dict struct into the new block, link inode
 
     // link ditionary block number with inode index
 
@@ -133,17 +146,48 @@ int main(int argc, char **argv) {
 
 
 
-// Helper function to find the smallest available inode (nonereserved) 
-unsigned int findAvailableInode(unsigned char* inodeBits){
-    printf("inode bits are %s\n", inodeBits);
-
-
-
-    return 0;
+int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_table){
+    int count = 0;
+    //get the beginning of inode bitmap
+    unsigned char* inodeBits = (unsigned char*)disk + group_table[0].bg_inode_bitmap * 0x400;
+    //get the end of inode bitmap
+    unsigned char* inodeLimit = (unsigned char*)disk + group_table[0].bg_inode_bitmap * 0x400 + ((sb->s_inodes_count) >> 3);
+    for(; inodeBits<inodeLimit; ++inodeBits){
+        for(unsigned int bit=1; bit<=0x80; bit<<=1){
+            //shift left for one means bit * 2
+            if(count > 11 && (((*inodeBits)&bit) > 0) == 0){
+                sb->s_free_inodes_count --;
+                group_table->bg_free_inodes_count --;
+                return count + 1;
+            }
+            count ++;
+        }
+    }
+    return -1;
 }
 
 
 
+
+int find_free_block(struct ext2_super_block *sb, struct ext2_group_desc* group_table){
+    int count = 0;
+    //get the beginning of block bitmap
+    unsigned char* blockBits = (unsigned char*)disk + group_table[0].bg_block_bitmap * 0x400;
+    //get the end of block bitmap
+    unsigned char* blockLimit = (unsigned char*)disk + group_table[0].bg_block_bitmap * 0x400 + ((sb->s_blocks_count) >> 3);
+    for(; blockBits<blockLimit; ++blockBits){
+        for (unsigned int bit=1; bit<=0x80; bit<<=1){
+            //shift left for one means bit * 2
+            if((((*blockBits)&bit) > 0) == 0){
+                sb->s_free_blocks_count --;
+                group_table->bg_free_blocks_count --;
+                return count + 1;
+            }
+            count++;
+        }
+    }
+    return -1;
+}
 
 
 
@@ -173,18 +217,9 @@ unsigned int findParentDirectoryInode(struct ext2_inode* table, unsigned int ind
                     char* name;
                     struct ext2_inode* inode = table + entry->inode-1;
 
-                    if(EXT2_S_IFREG & inode->i_mode){
-                        //regular file
-                        type = 'f';
-                    }else if(EXT2_S_IFDIR & inode->i_mode){
+                    if(EXT2_S_IFDIR & inode->i_mode){
                         //directory
                         type = 'd';
-                    }else{
-                        //symlink or other
-                        type = '0';
-                    }
-
-                    if(type == 'd'){
                         //directory  
                         name = (char*)(disk + 0x400 * block + index +sizeof(struct ext2_dir_entry));
                         printf("name is %s and type is %c\n", name, type);
@@ -196,6 +231,7 @@ unsigned int findParentDirectoryInode(struct ext2_inode* table, unsigned int ind
                             printf("inode index is %d\n", entry->inode);
                             return entry->inode;
                         }
+                        
                     }
                     index += entry->rec_len;
                 }
