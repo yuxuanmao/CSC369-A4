@@ -38,18 +38,24 @@ int get_parent_dir(char** dir_names, int lst_length, struct ext2_inode* inode_ta
   }
 }
 
-int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_table, struct ext2_inode* inode_table, char* inode_bitmap){
-  //we do not need to consider reserved inodes
-  for(int i=11; i<sb->s_inode_count; i++){
-    if(inode_bitmap[i>>3] & (1 << (i % 8)) == 0){
-      //we found the space
-      inode_bitmap[i >> 3] |= (1 << (i % 8));
-      memset(inode_table + i, 0, (struct ext2_inode));
-      sb->s_free_inodes_count --;
-      group_table->bg_free_inodes_count --;
-      return i+1;
-    }
+int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_table){
+  int count = 0;
+  //get the beginning of inode bitmap
+  unsigned char* inodeBits = (unsigned char*)disk + group_table[0].bg_inode_bitmap * 0x400;
+  //get the end of inode bitmap
+  unsigned char* inodeLimit = (unsigned char*)disk + group_table[0].bg_inode_bitmap * 0x400 + ((sb->s_inodes_count) >> 3);
+  for(; inodeBits<inodeLimit; ++inodeBits){
+      for(unsigned int bit=1; bit<=0x80; bit<<=1){
+          //shift left for one means bit * 2
+          if(count > 11 && (((*inodeBits)&bit) > 0) == 0){
+            sb->s_free_inodes_count --;
+            group_table->bg_free_inodes_count --;
+            return count + 1;
+          }
+          count ++;
+      }
   }
+  return -1;
 }
 
 int main(int argc, char **argv) {
