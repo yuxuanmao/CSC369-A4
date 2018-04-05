@@ -1,8 +1,17 @@
-ext2_cp :  ext2_cp.o
-	gcc -Wall -g -o ext2_cp $^
+FLAGS = -Wall 
+DEPENDENCIES = ext2.h ext2_share.h
 
-%.o : %.c ext2.h ext2_share.h
-	gcc -Wall -g -c $<
+all: ext2_cp ext2_mkdir
 
-clean :
-	rm -f *.o ext2_cp *~
+ext2_cp: ext2_cp.o 
+	gcc ${FLAGS} -o $@ $^
+
+ext2_mkdir: ext2_mkdir.o 
+	gcc ${FLAGS} -o $@ $^
+
+%.o: %.c ${DEPENDENCIES}
+	gcc ${FLAGS} -c $<
+
+clean:  
+	rm -rf *.o 
+	rm -rf ext2_cp ext2_mkdir*~
