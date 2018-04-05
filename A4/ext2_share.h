@@ -26,6 +26,7 @@ int allocate_inode();
 int allocate_block();
 int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_table);
 int find_free_block(struct ext2_super_block *sb, struct ext2_group_desc* group_table);
+int adjust_dir_size(int input);
 
 
 
@@ -74,6 +75,7 @@ struct ext2_dir_entry* cp_copy_filename(char* filename, char* target){
   //set the inode of current directory
   struct ext2_inode* cur_inode = inode_table + (EXT2_ROOT_INO - 1);
   //find the directory entry of "cur_dir" from cur_inode
+  //printf("search_direntry 1\n");
   struct ext2_dir_entry* cur_dir_entry = search_direntry(cur_inode, cur_dir);
 
   while(cur_dir_entry != NULL){// if cur_dir_entry is null, it did not found the "cur_dir"
@@ -97,19 +99,21 @@ struct ext2_dir_entry* cp_copy_filename(char* filename, char* target){
       cut_target += strlen(cur_dir);
     }
     cur_inode = inode_table + (cur_dir_entry->inode - 1);
+    //printf("search_direntry 2\n");
     cur_dir_entry = search_direntry(cur_inode, cur_dir);
   }
 
   if(cur_dir != NULL){
     filename = cur_dir;
   }
+  printf("want to create dir entry for %s at %d\n", filename, cur_inode->i_size);
   return create_direntry(cur_inode, filename, EXT2_FT_REG_FILE);
 }
 
 struct ext2_dir_entry* search_direntry(struct ext2_inode* inode, char* name){
   if(name == NULL){
-    perror("cannot find directory entry with null name");
-    exit(-1);
+    //perror("cannot find directory entry with null name");
+    return NULL;
   }
 
   //name cannot exceed 255 for ext2
@@ -135,7 +139,7 @@ struct ext2_dir_entry* search_direntry(struct ext2_inode* inode, char* name){
         //check whether this directory entry means "name" given
         if(name_length == dir_entry->name_len && strcmp(name, dir_entry->name) == 0){
           //we found "name"
-          return entry;
+          return dir_entry;
         }
       }
       //move to the next directory entry
@@ -147,7 +151,8 @@ struct ext2_dir_entry* search_direntry(struct ext2_inode* inode, char* name){
 
 struct ext2_dir_entry* create_direntry(struct ext2_inode* inode, char* name, unsigned char file_type){
   //check whether "name" already exists or not
-  if(search_direntry(inode, name) !- NULL){
+  if(search_direntry(inode, name) != NULL){
+    printf("there is already %s\n", name);
     exit(EEXIST);
   }
 
@@ -167,7 +172,7 @@ struct ext2_dir_entry* create_direntry(struct ext2_inode* inode, char* name, uns
       inode->i_blocks = (inode->i_blocks*512 + EXT2_BLOCK_SIZE)/512;
 
       unsigned char* block_ptr = disk + (new_block_num * EXT2_BLOCK_SIZE);
-      struct ext2_dir_entry* dir_entry - (struct ext2_dir_entry*) block_ptr;
+      struct ext2_dir_entry* dir_entry = (struct ext2_dir_entry*) block_ptr;
 
       //now fill out directory entry properties.
       //the size of new directory entry will take all rest of empty space to rec_len 
@@ -178,7 +183,7 @@ struct ext2_dir_entry* create_direntry(struct ext2_inode* inode, char* name, uns
       dir_entry->name_len = name_length;
       dir_entry->file_type = file_type;
       strncpy(dir_entry->name, name, name_length);
-
+      //printf("created block for %s\n", name);
       return dir_entry;
     }
 
@@ -203,7 +208,7 @@ struct ext2_dir_entry* create_direntry(struct ext2_inode* inode, char* name, uns
         dir_entry->name_len = name_length;
         dir_entry->file_type = file_type;
         strncpy(dir_entry->name, name, name_length);
-
+        //printf("found block for %s\n", name);
         return dir_entry;
       }else{
         //find whether it is possible to insert between two directory entry
@@ -212,23 +217,25 @@ struct ext2_dir_entry* create_direntry(struct ext2_inode* inode, char* name, uns
 
         //if there is a space in dir_entry that is large enough to insert "name"
         if(new_size <= (dir_entry->rec_len - dir_entry_size)){
+          //get the size of this "name"
+          int actual_size = (dir_entry->rec_len - dir_entry_size);
           //now we create a new dir_entry by using this space
-          struct ext2_dir_entry* pre_dir_entry = dir_entry;
+          //struct ext2_dir_entry* pre_dir_entry = dir_entry;
           //resize dir_entry
-          pre_dir_entry->rec_len = dir_entry_size;
+          dir_entry->rec_len = dir_entry_size;
           //move on to the new dir_entry
           cur_ptr = cur_ptr + dir_entry_size;
-          dir_entry = (struct ext2_dir_entry*)pos;
+          dir_entry = (struct ext2_dir_entry*)cur_ptr;
 
           //assign information in new dir_entry
           int new_inode_num = allocate_inode();
           //update the inode properties
           dir_entry->inode = new_inode_num;
-          dir_entry->rec_len = new_size;
+          dir_entry->rec_len = actual_size;
           dir_entry->name_len = name_length;
           dir_entry->file_type = file_type;
-          strncpy(entry->name, name, name_length);
-
+          strncpy(dir_entry->name, name, name_length);
+          //printf("found a space for %s at inode = %d, name=%s, size=%d\n", name, pre_dir_entry->inode, pre_dir_entry->name, pre_dir_entry->rec_len);
           return dir_entry;
         }
       }
@@ -237,36 +244,37 @@ struct ext2_dir_entry* create_direntry(struct ext2_inode* inode, char* name, uns
     }
   }
 
-  
-  if(int i)
+  //no more memory
+  exit(ENOMEM);
+
 }
 
 int allocate_inode(){
   struct ext2_super_block *sb = (struct ext2_super_block *)(disk + 1024);
   struct ext2_group_desc* group_table = (struct ext2_group_desc*)(disk + 1024*2);
   struct ext2_inode* inode_table = (struct ext2_inode*)(disk + 1024*group_table[0].bg_inode_table);
-  unsigned char* inode_bitmap = (unsigned char*)(disk + 1024*group_table[0].bg_inode_bitmap);
-  int inodes_count = sb->s_inodes_count;
+  //unsigned char* inode_bitmap = (unsigned char*)(disk + 1024*group_table[0].bg_inode_bitmap);
+  //int inodes_count = sb->s_inodes_count;
   int inode_num = find_free_inode(sb, group_table);
 
   //make sure to clean out the content in inode_num
   struct ext2_inode* new_inode = inode_table + (inode_num - 1);
-  memset(new_inde, 0, sizeof(struct ext2_inode));
-
+  memset(new_inode, 0, sizeof(struct ext2_inode));
+  //printf("found inode: %d for use\n", inode_num);
   return inode_num;
 }
 
 int allocate_block(){
   struct ext2_super_block *sb = (struct ext2_super_block *)(disk + 1024);
   struct ext2_group_desc* group_table = (struct ext2_group_desc*)(disk + 1024*2);
-  unsigned char* block_bitmap = (unsigned char*)(disk + 1024*group_table[0].bg_block_bitmap);
-  int blocks_count = sb->s_blocks_count;
+  //unsigned char* block_bitmap = (unsigned char*)(disk + 1024*group_table[0].bg_block_bitmap);
+  //int blocks_count = sb->s_blocks_count;
   int block_num = find_free_block(sb, group_table);
 
   //make sure to clean out the content in block_num
   unsigned char* new_block_ptr = disk + block_num * EXT2_BLOCK_SIZE;
-  memset(block, 0, EXT2_BLOCK_SIZE);
-
+  memset(new_block_ptr, 0, EXT2_BLOCK_SIZE);
+  //printf("found block: %d for use\n", block_num);
   return block_num;
 }
 
