@@ -16,7 +16,10 @@ unsigned int findParentDirectoryInode(struct ext2_inode* table, unsigned int ind
 int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_table);
 int find_free_block(struct ext2_super_block *sb, struct ext2_group_desc* group_table);
 void write_new_block(unsigned int block_num, unsigned int inode, unsigned int parentInode);
-void modify_parent_block(unsigned int inode, unsigned int parentInode, char *new_dir_name);
+void modify_parent_block(unsigned int inode, char *new_dir_name, unsigned int parentBlock);
+void update_inode(unsigned int block_num, unsigned int inode_num, struct ext2_inode* inode_table);
+
+
 
 void append(char *s, char c)
 {
@@ -45,7 +48,14 @@ int main(int argc, char **argv) {
         exit(1);
     }
     int fd = open(argv[1], O_RDWR);
+    // get rid of the first slash 
     char* target_path = argv[2];
+    if (target_path[0] != '/'){
+        perror("please give a root path");
+        exit(-1);
+    }
+
+    target_path += 1;
     
 
     disk = mmap(NULL, 128 * 1024, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -113,12 +123,20 @@ int main(int argc, char **argv) {
 
     // inode_num should now indicate the parent directory of where we would like to place our new directory
     printf("the inode pointing to parent directory is %d\n", inode_num);
+    // find parent block
+    struct ext2_inode* parent_inode = inode_table + (inode_num - 1);
+    unsigned int parent_block_num = (parent_inode->i_block)[0];
+    printf("parent block number is %d\n", parent_block_num);
+
     
+
+
     // find the smallest nonreserved inode and make this inode unavailable
     int smallest_inode = find_free_inode(sb, group_table);
     printf("the smallest inode available is %d\n", smallest_inode);
     if (smallest_inode == -1){
         perror("No more free inodes");
+        exit(-1);
     }
 
 
@@ -126,44 +144,112 @@ int main(int argc, char **argv) {
     int smallest_block = find_free_block(sb, group_table);
     printf("the smallest block available is %d\n", smallest_block);
     if (smallest_block == -1){
-            perror("No more free blocks");
+        perror("No more free blocks");
+        exit(-1);
     }
 
     
+    
+    // modify the parent directory to link to the new directory
+    modify_parent_block((unsigned int)smallest_inode, new_dir_name, parent_block_num);
+
     // write the dict struct into the new block, link inode
     write_new_block((unsigned int) smallest_block, (unsigned int) smallest_inode, (unsigned int) inode_num);
 
-    // modify the parent directory to link to the new directory
-    modify_parent_block((unsigned int)smallest_inode, (unsigned int)inode_num, new_dir_name);
-
-    // link ditionary block number with inode index
-
-    // update inode bitmap
+    // update inode 
+    update_inode((unsigned int) smallest_block, (unsigned int) smallest_inode, inode_table);
 
     return 0;
 }
 
 
-// modify the block where the parent directory is to include the new directory name
-void modify_parent_block(unsigned int inode, unsigned int parentInode, char *new_dir_name){
-    // append the new child dir entry to the end of all the existing entries of this parent
-    struct ext2_dir_entry *childentry;
-    childentry->inode = inode;
-    childentry->name[0] = 
-    childentry->file_type = 'd';
-    childentry->name_len = '1';
-    // 8+1+3
-    childentry->rec_len = 12;
+
+void update_inode(unsigned int block_num, unsigned int inode_num, struct ext2_inode* inode_table){
+    struct ext2_inode* inode = inode_table + (inode_num - 1);
+    inode->i_mode = 'd';
+    inode->i_uid = '0';
+    inode->i_gid = '0';
+    inode->i_block[0] = block_num;
+    inode->osd1 = 0;
+    inode->i_generation = 0;
+    inode->i_file_acl = 0;
 }
 
 
 
-// write dictionary with name and related inode into smallest block,
+// modify the block where the parent directory is to include the new directory name
+// find the smallest available place in the dir, check remaining space. 
+void modify_parent_block(unsigned int inode, char *new_dir_name, unsigned int parentBlock){
+    // find where is available in this block
+    struct ext2_dir_entry *checkingEntry = (struct ext2_dir_entry *)(disk + 0x400 * parentBlock);
+    unsigned int rec_len_total = checkingEntry->rec_len;
+    // rec lengh of the most current entry. It is to keep track of the length before last entry
+    unsigned int cur_rec_len;
+
+    while (rec_len_total<EXT2_BLOCK_SIZE){
+        
+        checkingEntry = (struct ext2_dir_entry *)(disk + 0x400 * parentBlock+rec_len_total);
+        
+        // check that same name don't already exist
+        char *checkingEntry_name = checkingEntry->name;
+        printf("checkingEntry name is %s\n", checkingEntry_name);
+        if (strcmp(checkingEntry_name, new_dir_name) == 0){
+            printf("duplicate detected\n");
+            exit(ENOENT);
+        }
+        cur_rec_len = checkingEntry->rec_len;
+        rec_len_total += cur_rec_len;
+    }
+
+    // right now check entry is the last entry, we will extract space in the last entry
+    unsigned int size_before_last = rec_len_total - cur_rec_len;
+    unsigned int needed_name_size;
+    if (checkingEntry->name_len%4 == 0){
+        needed_name_size = checkingEntry->name_len;
+    }else{
+        needed_name_size = checkingEntry->name_len + 4-checkingEntry->name_len%4;
+    }
+    
+    unsigned int last_entry_needed_size = 8 + needed_name_size;
+
+
+    printf("checkingEntry inode is %d\n", checkingEntry->inode);
+    printf("rec_len is %d\n", checkingEntry->rec_len);
+    printf("checkingEntry name is %s\n", checkingEntry->name);
+    printf("needed total is %d\n",last_entry_needed_size);
+
+    // now checkingEntry is at the start of free space in the block
+    if(sizeof(struct ext2_dir_entry *) > EXT2_BLOCK_SIZE - (size_before_last)){
+        perror("not enough space in parent directory");
+    }
+
+
+    // now place new entry here 
+    struct ext2_dir_entry *childEntry = (struct ext2_dir_entry *)(disk + 0x400 * parentBlock + size_before_last + last_entry_needed_size);
+    childEntry->inode = inode;
+    strcpy(childEntry->name, new_dir_name);
+    childEntry->file_type = 'd';
+    childEntry->name_len = (unsigned char) strlen(new_dir_name);
+    printf("childEntry name is %s\n", childEntry->name);
+    printf("childEntry name length is %d\n", childEntry->name_len);
+
+    // this entry takes up all the remaining space in this block
+    childEntry->rec_len = 1024 - (size_before_last+last_entry_needed_size);
+    printf("all the length the child needs is %d\n", childEntry->rec_len);
+    printf("rec_len total is %d\n", rec_len_total);
+    printf("last_entry_needed_size is %d\n", last_entry_needed_size );
+}
+
+
+
+// write dictionary with name and related inode into smallest block
+// since we know exactly what we are writing into the new block and the size of the content, we don't need to consider the case where the 
+// the content exceed block size.
 void write_new_block(unsigned int block_num, unsigned int inode, unsigned int parentInode){
     // index of the entry struct in the 
 
-    struct ext2_dir_entry *selfentry; 
-    struct ext2_dir_entry *parententry; 
+    struct ext2_dir_entry *selfentry = (struct ext2_dir_entry *)(disk + 0x400 * block_num);
+    struct ext2_dir_entry *parententry = (struct ext2_dir_entry *)(disk + 0x400 * block_num + selfentry->rec_len);
 
     selfentry->inode = inode;
     selfentry->name[0] = '.';
@@ -172,8 +258,6 @@ void write_new_block(unsigned int block_num, unsigned int inode, unsigned int pa
     selfentry->name_len = '1';
     // 8+1+3
     selfentry->rec_len = 12;
-
-    memset((disk + 0x400 * block_num), selfentry, sizeof(selfentry));
 
     parententry->inode = parentInode;
     parententry->name[0] = '.';
@@ -184,7 +268,6 @@ void write_new_block(unsigned int block_num, unsigned int inode, unsigned int pa
     // 8 + 2 + 2
     parententry->rec_len = 12;
 
-    memset((disk + 0x400 * block_num + selfentry->rec_len), parententry, sizeof(parententry));
 }
 
 
