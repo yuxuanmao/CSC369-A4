@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
     char dir_name[255];
     dir_name[0] = '\0';
     int indx = 0; //this is used for dir_names
-    printf("path = %s\n", target_path);
+    
     //Analyze the content of target_path to get each dir name
     for(int i=0; i<strlen(target_path)+1; i++){
       if(target_path[i] == '/' || target_path[i] == '\0'){
@@ -113,27 +113,27 @@ int main(int argc, char **argv) {
     // only want the path to parent
     for(i=0; i<num_dirs-1; i++){
         char *parsed_name = dir_names[i];
-        printf("%s\n", parsed_name);
+       
         inode_num = findParentDirectoryInode(inode_table, inode_num, parsed_name);
         if (inode_num == 0){
-            printf("directory not found\n");
+            
             exit(ENOENT);
         }
     }
 
     // inode_num should now indicate the parent directory of where we would like to place our new directory
-    printf("the inode pointing to parent directory is %d\n", inode_num);
+    
     // find parent block
     struct ext2_inode* parent_inode = inode_table + (inode_num - 1);
     unsigned int parent_block_num = (parent_inode->i_block)[0];
-    printf("parent block number is %d\n", parent_block_num);
+   
 
     
 
 
     // find the smallest nonreserved inode and make this inode unavailable
     int smallest_inode = find_free_inode(sb, group_table);
-    printf("the smallest inode available is %d\n", smallest_inode);
+   
     if (smallest_inode == -1){
         perror("No more free inodes");
         exit(-1);
@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
 
     // find the smallest free block
     int smallest_block = find_free_block(sb, group_table);
-    printf("the smallest block available is %d\n", smallest_block);
+   
     if (smallest_block == -1){
         perror("No more free blocks");
         exit(-1);
@@ -166,8 +166,11 @@ int main(int argc, char **argv) {
 
 void update_inode(unsigned int block_num, unsigned int inode_num, struct ext2_inode* inode_table){
     struct ext2_inode* inode = inode_table + (inode_num - 1);
-    inode->i_mode = 'd';
+    inode->i_mode = EXT2_S_IFDIR;
+    inode->i_size = 1024;
     inode->i_uid = '0';
+    inode->i_links_count ++;
+    inode->i_blocks = ((inode->i_blocks*512) + EXT2_BLOCK_SIZE)/512;
     inode->i_gid = '0';
     inode->i_block[0] = block_num;
     inode->osd1 = 0;
@@ -192,9 +195,9 @@ void modify_parent_block(unsigned int inode, char *new_dir_name, unsigned int pa
         
         // check that same name don't already exist
         char *checkingEntry_name = checkingEntry->name;
-        printf("checkingEntry name is %s\n", checkingEntry_name);
+      
         if (strcmp(checkingEntry_name, new_dir_name) == 0){
-            printf("duplicate detected\n");
+           
             exit(ENOENT);
         }
         cur_rec_len = checkingEntry->rec_len;
@@ -212,11 +215,10 @@ void modify_parent_block(unsigned int inode, char *new_dir_name, unsigned int pa
     
     unsigned int last_entry_needed_size = 8 + needed_name_size;
 
+    checkingEntry->rec_len = last_entry_needed_size;
 
-    printf("checkingEntry inode is %d\n", checkingEntry->inode);
-    printf("rec_len is %d\n", checkingEntry->rec_len);
-    printf("checkingEntry name is %s\n", checkingEntry->name);
-    printf("needed total is %d\n",last_entry_needed_size);
+
+   
 
     // now checkingEntry is at the start of free space in the block
     if(sizeof(struct ext2_dir_entry *) > EXT2_BLOCK_SIZE - (size_before_last)){
@@ -227,17 +229,14 @@ void modify_parent_block(unsigned int inode, char *new_dir_name, unsigned int pa
     // now place new entry here 
     struct ext2_dir_entry *childEntry = (struct ext2_dir_entry *)(disk + 0x400 * parentBlock + size_before_last + last_entry_needed_size);
     childEntry->inode = inode;
-    strcpy(childEntry->name, new_dir_name);
-    childEntry->file_type = 'd';
+    strncpy(childEntry->name, new_dir_name, strlen(new_dir_name));
+    childEntry->file_type = EXT2_FT_DIR;
+   
     childEntry->name_len = (unsigned char) strlen(new_dir_name);
-    printf("childEntry name is %s\n", childEntry->name);
-    printf("childEntry name length is %d\n", childEntry->name_len);
-
+    
     // this entry takes up all the remaining space in this block
     childEntry->rec_len = 1024 - (size_before_last+last_entry_needed_size);
-    printf("all the length the child needs is %d\n", childEntry->rec_len);
-    printf("rec_len total is %d\n", rec_len_total);
-    printf("last_entry_needed_size is %d\n", last_entry_needed_size );
+    
 }
 
 
@@ -248,30 +247,31 @@ void modify_parent_block(unsigned int inode, char *new_dir_name, unsigned int pa
 void write_new_block(unsigned int block_num, unsigned int inode, unsigned int parentInode){
     // index of the entry struct in the 
 
+
     struct ext2_dir_entry *selfentry = (struct ext2_dir_entry *)(disk + 0x400 * block_num);
-    struct ext2_dir_entry *parententry = (struct ext2_dir_entry *)(disk + 0x400 * block_num + selfentry->rec_len);
+    
 
     selfentry->inode = inode;
-    selfentry->name[0] = '.';
-    selfentry->name[1] = '\0';
-    selfentry->file_type = 'd';
-    selfentry->name_len = '1';
+    strncpy(selfentry->name, ".", strlen("."));
+    selfentry->file_type = EXT2_FT_DIR;
+    selfentry->name_len = 1;
     // 8+1+3
     selfentry->rec_len = 12;
 
+    struct ext2_dir_entry *parententry = (struct ext2_dir_entry *)(disk + 0x400 * block_num + selfentry->rec_len);
+
     parententry->inode = parentInode;
-    parententry->name[0] = '.';
-    parententry->name[1] = '.';
-    parententry->name[2] = '\0';
-    parententry->file_type = 'd';
-    parententry->name_len = '2';
+    strncpy(parententry->name, "..", strlen(".."));
+    parententry->file_type = EXT2_FT_DIR;
+    parententry->name_len = 2;
     // 8 + 2 + 2
-    parententry->rec_len = 12;
+    parententry->rec_len = 1024 - 12;
 
 }
 
 
 
+// find smallest unreserved free inode
 int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_table){
     int count = 0;
     //get the beginning of inode bitmap
@@ -282,6 +282,7 @@ int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_t
         for(unsigned int bit=1; bit<=0x80; bit<<=1){
             //shift left for one means bit * 2
             if(count > 11 && (((*inodeBits)&bit) > 0) == 0){
+                (*inodeBits)|=bit;
                 sb->s_free_inodes_count --;
                 group_table->bg_free_inodes_count --;
                 return count + 1;
@@ -294,6 +295,7 @@ int find_free_inode(struct ext2_super_block *sb, struct ext2_group_desc* group_t
 
 
 
+// find smallest unreserved free block
 int find_free_block(struct ext2_super_block *sb, struct ext2_group_desc* group_table){
     int count = 0;
     //get the beginning of block bitmap
@@ -304,6 +306,7 @@ int find_free_block(struct ext2_super_block *sb, struct ext2_group_desc* group_t
         for (unsigned int bit=1; bit<=0x80; bit<<=1){
             //shift left for one means bit * 2
             if((((*blockBits)&bit) > 0) == 0){
+                (*blockBits)|=bit;
                 sb->s_free_blocks_count --;
                 group_table->bg_free_blocks_count --;
                 return count + 1;
@@ -332,28 +335,19 @@ unsigned int findParentDirectoryInode(struct ext2_inode* table, unsigned int ind
             }else{
                 // this is each dir block num we got 
                 unsigned int block = (inode->i_block)[i];
-                printf("   DIR BLOCK NUM: %d (for inode %d)\n", block, indx);
                 // accumulator for the total size of the linked list, as the size cannot exceed block size
                 int index = 0;
                 while (index < EXT2_BLOCK_SIZE){
                     struct ext2_dir_entry *entry = (struct ext2_dir_entry*)(disk + 0x400 * block + index);
                     // determine the type of the file
-                    char type;
+                    
                     char* name;
                     struct ext2_inode* inode = table + entry->inode-1;
 
                     if(EXT2_S_IFDIR & inode->i_mode){
-                        //directory
-                        type = 'd';
                         //directory  
                         name = (char*)(disk + 0x400 * block + index +sizeof(struct ext2_dir_entry));
-                        printf("name is %s and type is %c\n", name, type);
                         if (strcmp(name, parsed_name) == 0){
-                            printf("name is %s\n", name);
-                            printf("parsed_name is %s\n", parsed_name);
-                            printf("found matching directory!\n");
-                            // return the inode related to this directory name
-                            printf("inode index is %d\n", entry->inode);
                             return entry->inode;
                         }
                         
@@ -369,35 +363,3 @@ unsigned int findParentDirectoryInode(struct ext2_inode* table, unsigned int ind
 
 
 
-//This is the helper function to print out inode information
-//we assume indx start from 1 so actual index of inode in table is indx -1
-void printInodeDetail(struct ext2_inode* table, unsigned int indx){
-    //get inode for this indx
-    struct ext2_inode* inode = table + (indx - 1);
-    //get the type of inode
-    char type;
-    if(EXT2_S_IFREG & inode->i_mode){
-        //regular file
-        type = 'f';
-    }else if(EXT2_S_IFDIR & inode->i_mode){
-        //directory
-        type = 'd';
-    }else{
-        //symlink or other
-        type = '0';
-    }
-    //print out info
-    printf("[%d] type: %c size: %d links: %d blocks: %d\n", 
-        indx, type, inode->i_size, inode->i_links_count, inode->i_blocks);
-    
-    //print actual block number in use by that file/directory
-    printf("[%d] Blocks:", indx);
-    for(int i = 0; i < 15; i++){
-        if((inode->i_block)[i] == 0){
-            break;
-        }else{
-            printf(" %d", (inode->i_block)[i]);
-        }
-    }
-    printf("\n");
-}
