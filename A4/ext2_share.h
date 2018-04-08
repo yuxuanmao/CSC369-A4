@@ -14,6 +14,7 @@
 
 unsigned char *disk;
 
+char* get_filename(char* full_path);
 void append(char* s, char c);
 int dirDepth(char* path);
 struct ext2_dir_entry* iterate_search(char* name, int* pointers, int iterate_time, int recursive_time, int flag);
@@ -29,6 +30,17 @@ int find_free_block(struct ext2_super_block *sb, struct ext2_group_desc* group_t
 int adjust_dir_size(int input);
 
 
+char* get_filename(char* full_path){
+  int start = 0;
+  for(int i = strlen(full_path)-1; i>=0; i--){
+      if(full_path[i] == '/'){
+          start = (i + 1);
+          //printf("%d\n", start);
+          break;
+      }
+  }
+  return full_path + start;
+}
 
 //used to add character to char array
 void append(char* s, char c){
