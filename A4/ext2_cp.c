@@ -47,20 +47,6 @@ int get_parent_dir(char** dir_names, int lst_length, struct ext2_inode* inode_ta
   return -2;
 }
 
-
-
-char* get_filename(char* full_path){
-  int start = 0;
-  for(int i = strlen(full_path)-1; i>=0; i--){
-      if(full_path[i] == '/'){
-          start = (i + 1);
-          //printf("%d\n", start);
-          break;
-      }
-  }
-  return full_path + start;
-}
-
 int main(int argc, char **argv) {
 
     if(argc != 4) {
